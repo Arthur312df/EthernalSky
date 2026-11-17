@@ -1,46 +1,36 @@
-using System;
-using Supabase.Postgrest.Attributes;
-using Supabase.Postgrest.Models;
-
-[Table("characters")]
-public class CharacterModel : BaseModel
+namespace EthernalSky.Models
 {
-    [PrimaryKey("id", true)]
-    public string Id { get; set; }
+    [Supabase.Postgrest.Attributes.Table("characters")]
+    public class CharacterModel : Supabase.Postgrest.Models.BaseModel
+    {
+        [Supabase.Postgrest.Attributes.PrimaryKey("id")]
+        public string Id { get; set; }
 
-    [Column("user_id")]
-    public string UserId { get; set; }
+        [Supabase.Postgrest.Attributes.Column("user_id")]
+        public string UserId { get; set; }
 
-    [Column("name")]
-    public string Name { get; set; }
+        [Supabase.Postgrest.Attributes.Column("name")]
+        public string Name { get; set; }
 
-    [Column("level")]
-    public int Level { get; set; } = 1;
+        [Supabase.Postgrest.Attributes.Column("current_hp")]
+        public float CurrentHp { get; set; }
 
-    [Column("experience")]
-    public long Experience { get; set; } = 0;
+        [Supabase.Postgrest.Attributes.Column("max_hp")]
+        public float MaxHp { get; set; }
 
-    [Column("current_hp")]
-    public float CurrentHp { get; set; } = 100f;
+        [Supabase.Postgrest.Attributes.Column("current_mana")]
+        public float CurrentMana { get; set; }
 
-    [Column("max_hp")]
-    public float MaxHp { get; set; } = 100f;
+        [Supabase.Postgrest.Attributes.Column("max_mana")]
+        public float MaxMana { get; set; }
 
-    [Column("current_mana")]
-    public float CurrentMana { get; set; } = 50f;
+        [Supabase.Postgrest.Attributes.Column("pos_x")]
+        public float PosX { get; set; }
 
-    [Column("max_mana")]
-    public float MaxMana { get; set; } = 50f;
+        [Supabase.Postgrest.Attributes.Column("pos_y")]
+        public float PosY { get; set; }
 
-    [Column("pos_x")]
-    public float PosX { get; set; }
-
-    [Column("pos_y")]
-    public float PosY { get; set; }
-
-    [Column("pos_z")]
-    public float PosZ { get; set; }
-
-    [Column("created_at")]
-    public DateTime CreatedAt { get; set; }
+        [Supabase.Postgrest.Attributes.Column("pos_z")]
+        public float PosZ { get; set; }
+    }
 }

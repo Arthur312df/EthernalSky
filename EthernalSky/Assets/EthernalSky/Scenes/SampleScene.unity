@@ -460,7 +460,7 @@ GameObject:
   - component: {fileID: 1223568098}
   - component: {fileID: 1223568097}
   - component: {fileID: 1223568096}
-  - component: {fileID: 1223568095}
+  - component: {fileID: 1223568100}
   m_Layer: 0
   m_Name: Dummy
   m_TagString: Untagged
@@ -468,22 +468,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1223568095
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1223568094}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 87f853e18db350c4a87931584aa5d4bb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::TrainingDummy
-  networkId: 
-  isOwner: 0
-  enemyName: Boneco de Treino
-  maxHp: 100
 --- !u!136 &1223568096
 CapsuleCollider:
   m_ObjectHideFlags: 0
@@ -579,6 +563,29 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1223568100
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1223568094}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3a888ec12948f75478159943365d5b57, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TacticalEnemyAI
+  networkId: 
+  isOwner: 0
+  enemyName: "Guardi\xE3o Corrompido"
+  maxHp: 120
+  moveSpeed: 3.2
+  engageDistance: 2.6
+  telegraphDuration: 0.9
+  recoveryDuration: 1.1
+  attackDamage: 20
+  attackRange: 3.2
+  attackWidth: 1.6
 --- !u!1 &1262796477
 GameObject:
   m_ObjectHideFlags: 0
@@ -933,10 +940,10 @@ MonoBehaviour:
   basicAttack: {fileID: 11400000, guid: 8f8ad00be72b1ad48be155f0f1cfa037, type: 2}
   activeSkills:
   - {fileID: 11400000, guid: 8f8ad00be72b1ad48be155f0f1cfa037, type: 2}
+  - {fileID: 11400000, guid: f4722fa917cf62b419fc1f6722078395, type: 2}
   - {fileID: 0}
   - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 11400000, guid: 552bccea653880e41a2e9eb3ac60ce21, type: 2}
   castPoint: {fileID: 0}
 --- !u!114 &1532167913
 MonoBehaviour:

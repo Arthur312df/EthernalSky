@@ -1,21 +1,18 @@
-using Supabase.Postgrest.Attributes;
-using Supabase.Postgrest.Models;
-
-[Table("character_skills")]
-public class CharacterSkillModel : BaseModel
+namespace EthernalSky.Models
 {
-    [PrimaryKey("id", true)]
-    public string Id { get; set; }
+    [Supabase.Postgrest.Attributes.Table("character_skills")]
+    public class CharacterSkillModel : Supabase.Postgrest.Models.BaseModel
+    {
+        [Supabase.Postgrest.Attributes.PrimaryKey("id")]
+        public string Id { get; set; }
 
-    [Column("character_id")]
-    public string CharacterId { get; set; }
+        [Supabase.Postgrest.Attributes.Column("character_id")]
+        public string CharacterId { get; set; }
 
-    [Column("skill_key")]
-    public string SkillKey { get; set; }
+        [Supabase.Postgrest.Attributes.Column("skill_key")]
+        public string SkillKey { get; set; }
 
-    [Column("slot_type")]
-    public string SlotType { get; set; }
-
-    [Column("slot_index")]
-    public int SlotIndex { get; set; }
+        [Supabase.Postgrest.Attributes.Column("slot_index")]
+        public int SlotIndex { get; set; }
+    }
 }
