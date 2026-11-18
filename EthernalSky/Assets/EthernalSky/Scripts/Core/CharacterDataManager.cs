@@ -23,18 +23,32 @@ public class CharacterDataManager : MonoBehaviour
     }
 
     // Método chamado para carregar os dados da sessão do jogador autenticado
-    public async Task LoadSessionDataAsync(string email, string password)
+public async Task LoadSessionDataAsync(string email, string password)
     {
         try
         {
             var client = SupabaseManager.Instance.Client;
-            
-            // 1. Autenticação no Supabase Auth
-            var session = await client.Auth.SignIn(email, password);
+            Supabase.Gotrue.Session session = null;
+
+            // Tenta fazer o login; se falhar (usuário não existe ou senha inválida), tenta criar a conta
+            try
+            {
+                session = await client.Auth.SignIn(email, password);
+            }
+            catch (Exception)
+            {
+                Debug.Log("[CharacterDataManager] Conta não encontrada ou credenciais inválidas. Tentando cadastrar novo usuário...");
+                
+                // Tenta registrar a nova conta
+                await client.Auth.SignUp(email, password);
+                
+                // Faz o login logo após o cadastro bem-sucedido
+                session = await client.Auth.SignIn(email, password);
+            }
+
             if (session?.User == null)
             {
-                await client.Auth.SignUp(email, password);
-                session = await client.Auth.SignIn(email, password);
+                throw new System.Exception("Não foi possível autenticar o usuário no Supabase.");
             }
 
             string userId = session.User.Id;
@@ -50,7 +64,7 @@ public class CharacterDataManager : MonoBehaviour
             }
             else
             {
-                // Cria um personagem padrão caso não exista nenhum gravado
+                // Cria um personagem padrão caso o usuário não tenha nenhum gravado
                 CurrentCharacter = new CharacterModel
                 {
                     UserId = userId,
@@ -75,9 +89,10 @@ public class CharacterDataManager : MonoBehaviour
 
             Debug.Log($"[CharacterDataManager] Sessão carregada com sucesso para: {CurrentCharacter.Name} | Skills vinculadas: {CurrentSkills.Count}");
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             Debug.LogError($"[CharacterDataManager] Erro ao carregar dados da sessão: {ex.Message}");
+            throw; // Repassa o erro para a UI exibir se necessário
         }
     }
 

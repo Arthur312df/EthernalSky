@@ -33,6 +33,9 @@ public class TacticalEnemyAI : NetworkObject, IDamageable
     private Transform telegraphRoot;
     private Transform telegraphFill;
 
+    [Header("Loot / Drop ao Morrer")]
+    [SerializeField] private GameObject[] itemDropPrefabs; // Lista de prefabs de itens que ele pode dropar
+
     private void Awake()
     {
         currentHp = maxHp;
@@ -169,7 +172,7 @@ public class TacticalEnemyAI : NetworkObject, IDamageable
         }
     }
 
-    private void Die()
+   private void Die()
     {
         currentState = AIState.Dead;
         StopAllCoroutines();
@@ -184,10 +187,36 @@ public class TacticalEnemyAI : NetworkObject, IDamageable
             col.enabled = false;
         }
 
+        // Instancia o item no chão na posição atual do inimigo
+        SpawnLoot();
+
         Debug.Log($"[Combate] {enemyName} foi derrotado e removido da cena!");
         Destroy(gameObject, 0.15f);
     }
 
+    private void SpawnLoot()
+    {
+        if (itemDropPrefabs != null && itemDropPrefabs.Length > 0)
+        {
+            int randomIndex = Random.Range(0, itemDropPrefabs.Length);
+            GameObject prefabToDrop = itemDropPrefabs[randomIndex];
+
+            if (prefabToDrop != null)
+            {
+                // Posição inicial na altura do inimigo
+                Vector3 spawnPos = transform.position;
+
+                // Joga um raio para baixo para encontrar o chão exato da arena isométrica
+                if (Physics.Raycast(transform.position + Vector3.up * 1f, Vector3.down, out RaycastHit hit, 10.0f))
+                {
+                    spawnPos = hit.point; // Ponto exato onde o raio bateu no chão
+                }
+
+                Instantiate(prefabToDrop, spawnPos, Quaternion.identity);
+                Debug.Log($"[Loot] Item dropado e posicionado no chão com sucesso!");
+            }
+        }
+    }
     private void CreateTelegraphIndicator()
     {
         telegraphRoot = new GameObject("TelegraphZone").transform;

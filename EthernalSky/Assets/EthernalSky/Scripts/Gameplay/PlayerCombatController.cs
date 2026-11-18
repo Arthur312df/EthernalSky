@@ -1,303 +1,436 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
 
-public class PlayerCombatController : NetworkObject, IDamageable
+[RequireComponent(typeof(NetworkObject))]
+public class PlayerCombatController : MonoBehaviour
 {
-    [Header("Loadout de Combate (1 Básico + 5 Skills)")]
-    [SerializeField] private SkillData basicAttack;
-    [SerializeField] private SkillData[] activeSkills = new SkillData[5];
+    [Header("Atributos de Vida e Mana")]
+    [SerializeField] private float maxHp = 100f;
+    [SerializeField] private float currentHp = 100f;
+    [SerializeField] private float hpRegenRate = 2f;
 
-    [Header("Referências de Disparo")]
-    [SerializeField] private Transform castPoint;
+    [SerializeField] private float maxMana = 50f;
+    [SerializeField] private float currentMana = 50f;
+    [SerializeField] private float manaRegenRate = 5f;
 
-    [Header("Regeneração Passiva")]
-    [SerializeField] private float hpRegenPerSecond = 2f;
-    [SerializeField] private float manaRegenPerSecond = 5f;
+    [Header("Configuração de Combate (1 Ataque Básico + 5 Skills)")]
+    [SerializeField] private SkillData basicAttackSkill;
+    [SerializeField] private List<SkillData> equippedSkills = new List<SkillData>(6);
+    [SerializeField] private LayerMask groundLayerMask = ~0;
 
-    private float[] cooldownTimers = new float[6];
+    private NetworkObject networkObject;
+    private CharacterController characterController;
+    private IsometricPlayerController movementController;
+    private Camera mainCamera;
 
-    public float CurrentHp { get; private set; } = 100f;
-    public float MaxHp { get; private set; } = 100f;
-    public float CurrentMana { get; private set; } = 50f;
-    public float MaxMana { get; private set; } = 50f;
+    private readonly float[] skillCooldowns = new float[6];
+    private readonly float[] skillMaxCooldowns = new float[6];
+    private bool isDashing = false;
 
-   private void Start()
+    public float BonusHp => InventoryManager.Instance != null ? InventoryManager.Instance.TotalBonusHp : 0f;
+    public float BonusDamage => InventoryManager.Instance != null ? InventoryManager.Instance.TotalBonusDamage : 0f;
+
+    public float CurrentHp => currentHp;
+    public float MaxHp => maxHp + BonusHp;
+    public float CurrentMana => currentMana;
+    public float MaxMana => maxMana;
+
+    private void Start()
     {
-        Initialize(System.Guid.NewGuid().ToString(), true);
+        networkObject = GetComponent<NetworkObject>();
+        networkObject.Initialize(System.Guid.NewGuid().ToString(), true);
+        characterController = GetComponent<CharacterController>();
+        movementController = GetComponent<IsometricPlayerController>();
+        mainCamera = Camera.main;
 
-        if (CharacterDataManager.Instance != null && CharacterDataManager.Instance.CurrentCharacter != null)
+        currentHp = MaxHp;
+        currentMana = maxMana;
+
+        InitializeSkillSlots();
+        EnsureEventSystemExists();
+
+        if (InventoryManager.Instance == null)
         {
-            var data = CharacterDataManager.Instance.CurrentCharacter;
-            CurrentHp = data.CurrentHp;
-            MaxHp = data.MaxHp;
-            CurrentMana = data.CurrentMana;
-            MaxMana = data.MaxMana;
+            gameObject.AddComponent<InventoryManager>();
+        }
+        else
+        {
+            _ = InventoryManager.Instance.InitializePlayerInventoryAsync();
         }
 
-        // Sincroniza as skills salvas no Supabase com os slots do loadout
-        SyncSkillsFromDatabase();
+        if (GetComponent<InventoryUIController>() == null)
+        {
+            gameObject.AddComponent<InventoryUIController>();
+        }
+
+        if (NetworkSessionManager.Instance == null)
+        {
+            gameObject.AddComponent<NetworkSessionManager>();
+        }
+
+        if (GetComponent<SocialUIController>() == null)
+        {
+            gameObject.AddComponent<SocialUIController>();
+        }
     }
 
-    private void SyncSkillsFromDatabase()
+    private void EnsureEventSystemExists()
     {
-        if (CharacterDataManager.Instance == null) return;
-
-        // Cria uma lista com todas as skills disponíveis no projeto (você pode arrastar para cá ou buscar via Resources)
-        SkillData[] allSkills = Resources.LoadAll<SkillData>("Skills"); // Ou carregadas via referência
-
-        foreach (var dbSkill in CharacterDataManager.Instance.CurrentSkills)
+        if (FindAnyObjectByType<EventSystem>() == null)
         {
-            SkillData matched = System.Array.Find(allSkills, s => s.skillKey == dbSkill.SkillKey);
-            if (matched == null) continue;
+            GameObject esObj = new GameObject("EventSystem");
+            esObj.AddComponent<EventSystem>();
+            esObj.AddComponent<InputSystemUIInputModule>();
+        }
+    }
 
-            if (dbSkill.SlotIndex == 0)
-                basicAttack = matched;
-            else if (dbSkill.SlotIndex >= 1 && dbSkill.SlotIndex <= 5)
-                activeSkills[dbSkill.SlotIndex - 1] = matched;
+    private void InitializeSkillSlots()
+    {
+        while (equippedSkills.Count < 6)
+        {
+            equippedSkills.Add(null);
+        }
+
+        if (basicAttackSkill != null && equippedSkills[0] == null)
+        {
+            equippedSkills[0] = basicAttackSkill;
+        }
+
+        string[] defaultKeys = { "basic_slash", "heavy_pierce", "blade_vortex", "shadow_step", "crimson_nova", "phantom_dash" };
+        string[] defaultNames = { "Golpe Básico", "Estocada Sombria", "Vórtice de Lâminas", "Passo das Sombras", "Nova Carmesim", "Avanço Fantasma" };
+        SkillCategory[] defaultCategories = {
+            SkillCategory.DirectionalStrike,
+            SkillCategory.DirectionalStrike,
+            SkillCategory.CircularAoE,
+            SkillCategory.MobilityDash,
+            SkillCategory.CircularAoE,
+            SkillCategory.MobilityDash
+        };
+        float[] defaultCooldowns = { 0.45f, 2.0f, 3.5f, 4.0f, 6.0f, 3.0f };
+        float[] defaultManaCosts = { 0f, 10f, 15f, 10f, 25f, 15f };
+        float[] defaultDamages = { 20f, 35f, 30f, 15f, 50f, 0f };
+        float[] defaultRanges = { 2.5f, 3.2f, 3.5f, 4.5f, 4.5f, 5.0f };
+        float[] defaultDashDurations = { 0f, 0f, 0f, 0.18f, 0f, 0.15f };
+
+        for (int i = 0; i < 6; i++)
+        {
+            if (equippedSkills[i] == null)
+            {
+                SkillData runtimeSkill = ScriptableObject.CreateInstance<SkillData>();
+                runtimeSkill.name = defaultNames[i];
+                runtimeSkill.skillKey = defaultKeys[i];
+                runtimeSkill.displayName = defaultNames[i];
+                runtimeSkill.category = defaultCategories[i];
+                runtimeSkill.cooldown = defaultCooldowns[i];
+                runtimeSkill.manaCost = defaultManaCosts[i];
+                runtimeSkill.damage = defaultDamages[i];
+                runtimeSkill.range = defaultRanges[i];
+                runtimeSkill.dashDuration = defaultDashDurations[i];
+                equippedSkills[i] = runtimeSkill;
+            }
+
+            skillMaxCooldowns[i] = Mathf.Max(equippedSkills[i].cooldown, 0.01f);
         }
     }
 
     private void Update()
     {
-        if (!IsOwner) return;
-
         UpdateCooldowns();
-        UpdateRegeneration();
+        RegenerateResources();
         HandleCombatInputs();
     }
 
     private void UpdateCooldowns()
     {
-        for (int i = 0; i < cooldownTimers.Length; i++)
+        for (int i = 0; i < skillCooldowns.Length; i++)
         {
-            if (cooldownTimers[i] > 0f)
+            if (skillCooldowns[i] > 0f)
             {
-                cooldownTimers[i] = Mathf.Max(0f, cooldownTimers[i] - Time.deltaTime);
+                skillCooldowns[i] -= Time.deltaTime;
+                if (skillCooldowns[i] < 0f)
+                {
+                    skillCooldowns[i] = 0f;
+                }
             }
         }
     }
 
-    private void UpdateRegeneration()
+    private void RegenerateResources()
     {
-        // Regenera HP passivamente se não estiver com a vida cheia
-        if (CurrentHp < MaxHp && CurrentHp > 0f)
+        if (currentHp > 0f && currentHp < MaxHp)
         {
-            CurrentHp = Mathf.Min(MaxHp, CurrentHp + hpRegenPerSecond * Time.deltaTime);
+            currentHp = Mathf.Min(MaxHp, currentHp + hpRegenRate * Time.deltaTime);
         }
 
-        // Regenera Mana passivamente se não estiver com a mana cheia
-        if (CurrentMana < MaxMana)
+        if (currentMana < maxMana)
         {
-            CurrentMana = Mathf.Min(MaxMana, CurrentMana + manaRegenPerSecond * Time.deltaTime);
+            currentMana = Mathf.Min(maxMana, currentMana + manaRegenRate * Time.deltaTime);
         }
     }
 
     private void HandleCombatInputs()
     {
-        if (Mouse.current == null || Keyboard.current == null) return;
+        if (InventoryUIController.IsPointerOverInventory || SocialUIController.IsPointerOverSocial) return;
 
-        if (Mouse.current.leftButton.isPressed)
-            TryCastSkill(0, basicAttack);
+        if (Mouse.current != null)
+        {
+            if (!WorldItemDrop.IsHoveringAnyItem && Mouse.current.leftButton.wasPressedThisFrame)
+            {
+                TryCastSkill(0, GetSkillInSlot(0));
+            }
 
-        if (Mouse.current.rightButton.wasPressedThisFrame && activeSkills.Length > 0)
-            TryCastSkill(1, activeSkills[0]);
+            if (Mouse.current.rightButton.wasPressedThisFrame)
+            {
+                TryCastSkill(1, GetSkillInSlot(1));
+            }
+        }
 
-        if (Keyboard.current.qKey.wasPressedThisFrame && activeSkills.Length > 1)
-            TryCastSkill(2, activeSkills[1]);
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.qKey.wasPressedThisFrame)
+                TryCastSkill(2, GetSkillInSlot(2));
 
-        if (Keyboard.current.eKey.wasPressedThisFrame && activeSkills.Length > 2)
-            TryCastSkill(3, activeSkills[2]);
+            if (Keyboard.current.eKey.wasPressedThisFrame)
+                TryCastSkill(3, GetSkillInSlot(3));
 
-        if (Keyboard.current.rKey.wasPressedThisFrame && activeSkills.Length > 3)
-            TryCastSkill(4, activeSkills[3]);
+            if (Keyboard.current.rKey.wasPressedThisFrame)
+                TryCastSkill(4, GetSkillInSlot(4));
 
-        if (Keyboard.current.spaceKey.wasPressedThisFrame && activeSkills.Length > 4)
-            TryCastSkill(5, activeSkills[4]);
+            if (Keyboard.current.spaceKey.wasPressedThisFrame)
+                TryCastSkill(5, GetSkillInSlot(5));
+        }
     }
 
-    private void TryCastSkill(int slotIndex, SkillData skill)
+    public void TryCastSkill(int slotIndex, SkillData skillData)
     {
-        if (skill == null)
+        if (slotIndex < 0 || slotIndex >= skillCooldowns.Length || skillData == null) return;
+
+        if (skillData.category == SkillCategory.MobilityDash && isDashing) return;
+
+        if (skillCooldowns[slotIndex] > 0f)
         {
-            Debug.LogWarning($"[Combate] Botão do Slot {slotIndex} pressionado, mas nenhum SkillData foi arrastado para esse slot no Inspector!");
+            Debug.Log($"[Combate] {skillData.displayName} em recarga: {skillCooldowns[slotIndex]:F1}s");
             return;
         }
 
-        if (cooldownTimers[slotIndex] > 0f) return;
-
-        if (CurrentMana < skill.manaCost)
+        if (currentMana < skillData.manaCost)
         {
-            Debug.Log($"[Combate] Mana insuficiente para {skill.displayName}!");
+            Debug.Log($"[Combate] Mana insuficiente para {skillData.displayName}!");
             return;
         }
 
-        CurrentMana -= skill.manaCost;
-        cooldownTimers[slotIndex] = skill.cooldown;
+        currentMana -= skillData.manaCost;
+        skillCooldowns[slotIndex] = skillData.cooldown;
+        skillMaxCooldowns[slotIndex] = Mathf.Max(skillData.cooldown, 0.01f);
 
-        ExecuteSkill(slotIndex, skill);
+        ExecuteSkill(slotIndex, skillData);
     }
 
-    private void ExecuteSkill(int slotIndex, SkillData skill)
+    public void ExecuteSkill(int slotIndex, SkillData skillData)
     {
-        Vector3 origin = castPoint != null ? castPoint.position : transform.position + Vector3.up * 0.5f;
-        Vector3 direction = transform.forward;
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3 direction = mouseWorldPos - transform.position;
+        direction.y = 0f;
 
-        if (skill.vfxPrefab != null)
+        if (direction.sqrMagnitude > 0.001f)
         {
-            Instantiate(skill.vfxPrefab, origin, transform.rotation);
+            direction.Normalize();
+            transform.forward = direction;
+        }
+        else
+        {
+            direction = transform.forward;
         }
 
-        switch (skill.category)
+        switch (skillData.category)
         {
             case SkillCategory.DirectionalStrike:
-                ExecuteDirectionalStrike(origin, direction, skill);
+                Vector3 strikeOrigin = transform.position + direction * (skillData.range * 0.6f);
+                ExecuteDirectionalStrike(strikeOrigin, direction, skillData);
                 break;
 
             case SkillCategory.CircularAoE:
-                ExecuteCircularAoE(origin, skill);
+                ExecuteCircularAoE(transform.position, skillData);
                 break;
 
             case SkillCategory.MobilityDash:
-                ExecuteMobilityDash(origin, direction, skill);
+                StartCoroutine(ExecuteMobilityDashRoutine(direction, skillData));
                 break;
         }
     }
 
-    private void ExecuteDirectionalStrike(Vector3 origin, Vector3 direction, SkillData skill)
+    public void ExecuteDirectionalStrike(Vector3 origin, Vector3 direction, SkillData skillData)
     {
-        Vector3 boxCenter = origin + direction * (skill.range * 0.5f);
-        Vector3 boxHalfExtents = new Vector3(0.6f, 0.8f, skill.range * 0.5f);
+        float radius = Mathf.Max(skillData.range * 0.65f, 1.2f);
+        SpawnSkillVisual(origin, radius, skillData, new Color(1f, 0.85f, 0.2f, 0.6f));
 
-        if (skill.vfxPrefab == null)
-        {
-            GameObject debugBox = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            debugBox.transform.position = boxCenter;
-            debugBox.transform.rotation = transform.rotation;
-            debugBox.transform.localScale = boxHalfExtents * 2f;
-            Destroy(debugBox.GetComponent<Collider>());
-            Destroy(debugBox, 0.15f);
-        }
-
-        Collider[] hits = Physics.OverlapBox(boxCenter, boxHalfExtents, transform.rotation);
-        ApplyDamageToHits(hits, skill.damage, direction);
+        Collider[] hits = Physics.OverlapSphere(origin, radius);
+        ApplyDamageToHits(hits, skillData.damage + BonusDamage, origin);
     }
 
-   private void ExecuteCircularAoE(Vector3 origin, SkillData skill)
+    public void ExecuteCircularAoE(Vector3 center, SkillData skillData)
     {
-        // Gira o jogador instantaneamente para a posição do mouse antes de soltar a AoE
-        if (Camera.main != null && Mouse.current != null)
+        float radius = Mathf.Max(skillData.range, 2.0f);
+        SpawnSkillVisual(center, radius, skillData, new Color(0.85f, 0.2f, 0.3f, 0.5f));
+
+        Collider[] hits = Physics.OverlapSphere(center, radius);
+        ApplyDamageToHits(hits, skillData.damage + BonusDamage, center);
+    }
+
+    private IEnumerator ExecuteMobilityDashRoutine(Vector3 dashDirection, SkillData skillData)
+    {
+        isDashing = true;
+
+        // Trava a direção normalizada no plano XZ para não sofrer interferência durante o avanço
+        Vector3 lockedDirection = new Vector3(dashDirection.x, 0f, dashDirection.z).normalized;
+        if (lockedDirection.sqrMagnitude < 0.001f)
         {
-            Ray ray = Camera.main.ScreenPointToRay(Mouse.current.position.ReadValue());
-            Plane groundPlane = new Plane(Vector3.up, new Vector3(0f, transform.position.y, 0f));
-            if (groundPlane.Raycast(ray, out float enter))
+            lockedDirection = transform.forward;
+        }
+
+        transform.forward = lockedDirection;
+
+        // Pausa temporariamente o script de movimento WASD durante o Dash para não brigar com o CharacterController
+        bool wasMovementEnabled = false;
+        if (movementController != null && movementController.enabled)
+        {
+            wasMovementEnabled = true;
+            movementController.enabled = false;
+        }
+
+        float duration = Mathf.Max(skillData.dashDuration, 0.12f);
+        float distance = Mathf.Max(skillData.range, 3.5f);
+        float dashSpeed = distance / duration;
+        float elapsed = 0f;
+
+        SpawnSkillVisual(transform.position, 1.2f, skillData, new Color(0.3f, 0.7f, 1f, 0.5f));
+
+        while (elapsed < duration)
+        {
+            float step = dashSpeed * Time.deltaTime;
+            if (characterController != null && characterController.enabled)
             {
-                Vector3 hitPoint = ray.GetPoint(enter);
-                Vector3 lookDir = hitPoint - transform.position;
-                lookDir.y = 0f;
-                if (lookDir.sqrMagnitude > 0.01f)
-                {
-                    transform.rotation = Quaternion.LookRotation(lookDir);
-                }
+                characterController.Move(lockedDirection * step);
+            }
+            else
+            {
+                transform.position += lockedDirection * step;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        if (wasMovementEnabled && movementController != null)
+        {
+            movementController.enabled = true;
+        }
+
+        if (skillData.damage > 0f)
+        {
+            Collider[] hits = Physics.OverlapSphere(transform.position, 2.0f);
+            ApplyDamageToHits(hits, skillData.damage + BonusDamage, transform.position);
+        }
+
+        isDashing = false;
+    }
+
+    private void SpawnSkillVisual(Vector3 position, float radius, SkillData skillData, Color fallbackColor)
+    {
+        if (skillData.vfxPrefab != null)
+        {
+            GameObject vfx = Instantiate(skillData.vfxPrefab, position, Quaternion.LookRotation(transform.forward));
+            Destroy(vfx, 1.5f);
+            return;
+        }
+
+        GameObject indicator = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        Destroy(indicator.GetComponent<Collider>());
+        indicator.transform.position = new Vector3(position.x, transform.position.y + 0.05f, position.z);
+        indicator.transform.localScale = new Vector3(radius * 2f, 0.05f, radius * 2f);
+
+        if (indicator.TryGetComponent<Renderer>(out var rend))
+        {
+            rend.material.color = fallbackColor;
+        }
+
+        Destroy(indicator, 0.2f);
+    }
+
+    public void ApplyDamageToHits(Collider[] hits, float damage, Vector3 hitPoint)
+    {
+        foreach (var hit in hits)
+        {
+            if (hit.TryGetComponent<TacticalEnemyAI>(out var enemy))
+            {
+                enemy.TakeDamage(damage, hitPoint);
             }
         }
-
-        if (skill.vfxPrefab == null)
-        {
-            GameObject debugCylinder = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            debugCylinder.transform.position = new Vector3(transform.position.x, transform.position.y + 0.1f, transform.position.z);
-            debugCylinder.transform.localScale = new Vector3(skill.range * 2f, 0.05f, skill.range * 2f);
-            Destroy(debugCylinder.GetComponent<Collider>());
-            Destroy(debugCylinder, 0.2f);
-        }
-
-        Collider[] hits = Physics.OverlapSphere(origin, skill.range);
-        foreach (Collider hit in hits)
-        {
-            if (hit.gameObject == gameObject) continue;
-            if (hit.TryGetComponent<IDamageable>(out IDamageable target))
-            {
-                Vector3 pushDir = (hit.transform.position - transform.position).normalized;
-                target.TakeDamage(skill.damage, pushDir);
-            }
-        }
     }
 
-    private void ExecuteMobilityDash(Vector3 origin, Vector3 direction, SkillData skill)
+    public void TakeDamage(float damage, Vector3 hitPoint)
     {
-        if (TryGetComponent<IsometricPlayerController>(out IsometricPlayerController movement))
-        {
-            movement.PerformDash(direction, skill.range, skill.dashDuration);
-        }
+        currentHp -= damage;
+        if (currentHp < 0f) currentHp = 0f;
 
-        if (skill.damage > 0f)
-        {
-            Vector3 boxCenter = origin + direction * (skill.range * 0.5f);
-            Vector3 boxHalfExtents = new Vector3(0.7f, 0.8f, skill.range * 0.5f);
-            Collider[] hits = Physics.OverlapBox(boxCenter, boxHalfExtents, transform.rotation);
-            ApplyDamageToHits(hits, skill.damage, direction);
-        }
-    }
+        Debug.Log($"[Player] Recebeu {damage} de dano! HP: {currentHp}/{MaxHp}");
 
-    private void ApplyDamageToHits(Collider[] hits, float damage, Vector3 direction)
-    {
-        foreach (Collider hit in hits)
-        {
-            if (hit.gameObject == gameObject) continue;
-            if (hit.TryGetComponent<IDamageable>(out IDamageable target))
-            {
-                target.TakeDamage(damage, direction);
-            }
-        }
-    }
-
-    public void TakeDamage(float amount, Vector3 hitDirection)
-    {
-        CurrentHp = Mathf.Max(0f, CurrentHp - amount);
-        Debug.Log($"[Player] Recebeu {amount} de dano! HP: {CurrentHp}/{MaxHp}");
-
-        if (CurrentHp <= 0f)
+        if (currentHp <= 0f)
         {
             Debug.Log("[Player] Vida zerada! Restaurando HP para continuar o teste...");
-            CurrentHp = MaxHp;
+            currentHp = MaxHp;
         }
+    }
+
+    private Vector3 GetMouseWorldPosition()
+    {
+        if (mainCamera == null) mainCamera = Camera.main;
+        if (mainCamera == null) mainCamera = FindAnyObjectByType<Camera>();
+
+        if (mainCamera != null && Mouse.current != null)
+        {
+            Ray ray = mainCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
+
+            // Plano horizontal matemático na altura do Player: funciona em 360° e nunca colide com o próprio corpo do Player
+            Plane groundPlane = new Plane(Vector3.up, new Vector3(0f, transform.position.y, 0f));
+            if (groundPlane.Raycast(ray, out float enterDistance))
+            {
+                return ray.GetPoint(enterDistance);
+            }
+        }
+
+        return transform.position + transform.forward * 2f;
     }
 
     public SkillData GetSkillInSlot(int slotIndex)
     {
-        if (slotIndex == 0) return basicAttack;
-        int activeIndex = slotIndex - 1;
-        if (activeIndex >= 0 && activeIndex < activeSkills.Length)
-            return activeSkills[activeIndex];
+        if (slotIndex >= 0 && slotIndex < equippedSkills.Count)
+        {
+            return equippedSkills[slotIndex];
+        }
         return null;
     }
 
     public float GetCooldownRemaining(int slotIndex)
     {
-        if (slotIndex < 0 || slotIndex >= cooldownTimers.Length) return 0f;
-        return cooldownTimers[slotIndex];
+        if (slotIndex >= 0 && slotIndex < skillCooldowns.Length)
+        {
+            return skillCooldowns[slotIndex];
+        }
+        return 0f;
     }
 
     public float GetCooldownRatio(int slotIndex)
     {
-        SkillData skill = GetSkillInSlot(slotIndex);
-        if (skill == null || skill.cooldown <= 0f) return 0f;
-        return Mathf.Clamp01(cooldownTimers[slotIndex] / skill.cooldown);
-    }
+        if (slotIndex < 0 || slotIndex >= skillCooldowns.Length) return 0f;
 
-    public void SyncSkillsWithDatabase(List<SkillData> allAvailableSkills)
-    {
-        if (CharacterDataManager.Instance == null) return;
+        float maxCd = skillMaxCooldowns[slotIndex];
+        if (maxCd <= 0f) return 0f;
 
-        foreach (var dbSkill in CharacterDataManager.Instance.CurrentSkills)
-        {
-            SkillData matchedSkill = allAvailableSkills.Find(s => s.skillKey == dbSkill.SkillKey);
-            if (matchedSkill == null) continue;
-
-            if (dbSkill.SlotIndex == 0)
-                basicAttack = matchedSkill;
-            else if (dbSkill.SlotIndex >= 1 && dbSkill.SlotIndex <= 5)
-                activeSkills[dbSkill.SlotIndex - 1] = matchedSkill;
-        }
+        return Mathf.Clamp01(skillCooldowns[slotIndex] / maxCd);
     }
 }

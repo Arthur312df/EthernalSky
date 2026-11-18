@@ -586,6 +586,8 @@ MonoBehaviour:
   attackDamage: 20
   attackRange: 3.2
   attackWidth: 1.6
+  itemDropPrefabs:
+  - {fileID: 6600274561059403921, guid: 67a61462cf2d9a0469e148f53bed8dfd, type: 3}
 --- !u!1 &1262796477
 GameObject:
   m_ObjectHideFlags: 0
@@ -931,18 +933,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8aaaaec3c029ce64eadfd415b377509b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerCombatController
-  networkId: 
-  isOwner: 0
-  basicAttack: {fileID: 11400000, guid: 8f8ad00be72b1ad48be155f0f1cfa037, type: 2}
-  activeSkills:
+  maxHp: 100
+  currentHp: 100
+  hpRegenRate: 2
+  maxMana: 50
+  currentMana: 50
+  manaRegenRate: 2
+  basicAttackSkill: {fileID: 11400000, guid: 8f8ad00be72b1ad48be155f0f1cfa037, type: 2}
+  equippedSkills:
   - {fileID: 11400000, guid: 8f8ad00be72b1ad48be155f0f1cfa037, type: 2}
   - {fileID: 11400000, guid: f4722fa917cf62b419fc1f6722078395, type: 2}
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 11400000, guid: 552bccea653880e41a2e9eb3ac60ce21, type: 2}
-  castPoint: {fileID: 0}
-  hpRegenPerSecond: 2
-  manaRegenPerSecond: 5
+  groundLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!114 &1532167913
 MonoBehaviour:
   m_ObjectHideFlags: 0

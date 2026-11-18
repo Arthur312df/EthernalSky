@@ -1,24 +1,21 @@
-using Supabase.Postgrest.Attributes;
-using Supabase.Postgrest.Models;
-
-[Table("inventory")]
-public class InventoryItemModel : BaseModel
+namespace EthernalSky.Models
 {
-    [PrimaryKey("id", true)]
-    public string Id { get; set; }
+    [Supabase.Postgrest.Attributes.Table("items_inventory")]
+    public class InventoryItemModel : Supabase.Postgrest.Models.BaseModel
+    {
+        [Supabase.Postgrest.Attributes.PrimaryKey("id")]
+        public string Id { get; set; }
 
-    [Column("character_id")]
-    public string CharacterId { get; set; }
+        [Supabase.Postgrest.Attributes.Column("character_id")]
+        public string CharacterId { get; set; }
 
-    [Column("item_key")]
-    public string ItemKey { get; set; }
+        [Supabase.Postgrest.Attributes.Column("item_key")]
+        public string ItemKey { get; set; }
 
-    [Column("quantity")]
-    public int Quantity { get; set; } = 1;
+        [Supabase.Postgrest.Attributes.Column("quantity")]
+        public int Quantity { get; set; }
 
-    [Column("slot_index")]
-    public int SlotIndex { get; set; }
-
-    [Column("metadata")]
-    public string Metadata { get; set; } = "{}";
+        [Supabase.Postgrest.Attributes.Column("is_equipped")]
+        public bool IsEquipped { get; set; }
+    }
 }
